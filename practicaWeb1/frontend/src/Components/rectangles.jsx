@@ -10,9 +10,28 @@ const Rectangles = () => {
   const [battleResult, setBattleResult] = useState(null);
   const [selectedPokemon, setSelectedPokemon] = useState([]);
 
-  // Fetch all Pokemon on component mount
+
   useEffect(() => {
+
     fetchPokemon();
+
+    const eventSource = new EventSource(`${API_BASE_URL}/battle/stream`);
+
+    eventSource.onmessage = (event) => {
+      const pokemonActualizado = JSON.parse(event.data);
+
+      setPokemonList(listaActual =>
+        listaActual.map(p =>
+          p.id === pokemonActualizado.id ? pokemonActualizado : p
+        )
+      );
+    };
+
+    eventSource.onerror = () => {
+      eventSource.close();
+    };
+
+    return () => eventSource.close();
   }, []);
 
   const fetchPokemon = async () => {
@@ -55,15 +74,19 @@ const Rectangles = () => {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/battle?pokemon1Id=${selectedPokemon[0]}&pokemon2Id=${selectedPokemon[1]}`, {
-        method: 'POST',
-      });
-      if (!response.ok) {
-        throw new Error('Failed to battle Pokemon');
-      }
+      const response = await fetch(
+        `${API_BASE_URL}/battle?pokemon1Id=${selectedPokemon[0]}&pokemon2Id=${selectedPokemon[1]}`,
+        { method: 'POST' }
+      );
+      if (!response.ok) throw new Error('Failed to battle Pokemon');
+
       const winnerId = await response.json();
       const winner = pokemonList.find(p => p.id === winnerId);
       setBattleResult(`${winner.name} wins the battle!`);
+
+
+      fetchPokemon();
+      setSelectedPokemon([]);
     } catch (err) {
       setError(err.message);
     }

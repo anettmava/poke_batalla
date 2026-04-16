@@ -1,12 +1,19 @@
 package com.example.web1.controllers;
 
+import java.util.List;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
 import com.example.web1.model.PokeEntity;
 import com.example.web1.services.PokeConsultaService;
 import com.example.web1.services.PokeService;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/pokemon")
@@ -41,5 +48,10 @@ public class PokeController {
     @GetMapping("/all")
     public List<PokeEntity> getAll() {
         return consultaService.findAllPokemon();
+    }
+
+    @GetMapping("/battle/stream")
+    public SseEmitter streamBatalla() {
+        return pokeService.agregarCliente();
     }
 }

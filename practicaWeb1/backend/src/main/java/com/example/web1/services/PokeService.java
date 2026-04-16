@@ -1,34 +1,92 @@
 package com.example.web1.services;
 
-import com.example.web1.model.PokeEntity;
-import com.google.cloud.firestore.DocumentSnapshot;
-import com.google.cloud.firestore.Firestore;
-import com.google.firebase.cloud.FirestoreClient;
-import org.springframework.stereotype.Service;
-
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
+import com.example.web1.model.PokeEntity;
+import com.google.cloud.firestore.DocumentReference;
+import com.google.cloud.firestore.DocumentSnapshot;
+import com.google.cloud.firestore.Firestore;
+import com.google.firebase.FirebaseApp;
+import com.google.firebase.cloud.FirestoreClient;
+
+import jakarta.annotation.PostConstruct;
 
 @Service
 public class PokeService {
+
+
+    @Autowired
+    private FirebaseApp firebaseApp;
+
     private static final String COLLECTION_NAME = "pokemon";
 
-    // Pokemon creation and management
+    private PokeEntity ultimaBatalla = new PokeEntity();
+
+    private final List<SseEmitter> emitters = new CopyOnWriteArrayList<>();
+
+   
+    @PostConstruct
+    public void escucharCambios() {
+        // Usamos firebaseApp (inyectado) para que Spring controle el ciclo de vida
+        Firestore db = FirestoreClient.getFirestore(firebaseApp);
+        DocumentReference docRef = db.collection("pokebattles").document("battle1");
+
+        docRef.addSnapshotListener((snapshot, error) -> {
+            if (error != null) {
+                error.printStackTrace();
+                return;
+            }
+            if (snapshot != null && snapshot.exists()) {
+    
+                ultimaBatalla = snapshot.toObject(PokeEntity.class);
+                enviarActualizacion();
+            }
+        });
+    }
+
+    public SseEmitter agregarCliente() {
+        SseEmitter emitter = new SseEmitter(Long.MAX_VALUE);
+        emitters.add(emitter);
+
+        emitter.onCompletion(() -> emitters.remove(emitter));
+        emitter.onTimeout(() -> emitters.remove(emitter));
+
+        try {
+            emitter.send(ultimaBatalla);
+        } catch (Exception e) {
+            emitters.remove(emitter);
+        }
+        return emitter;
+    }
+
+
+    private void enviarActualizacion() {
+        for (SseEmitter emitter : emitters) {
+            try {
+                emitter.send(ultimaBatalla);
+            } catch (Exception e) {
+                emitters.remove(emitter);
+            }
+        }
+    }
+
+
     public PokeEntity createPokemon(String name, int level) {
         try {
             Firestore db = FirestoreClient.getFirestore();
-            
-            // Generate new ID based on document count
             long newId = System.currentTimeMillis();
             PokeEntity p = new PokeEntity(newId, name, level);
-            
-            // Save to Firestore
             db.collection(COLLECTION_NAME)
                     .document(String.valueOf(newId))
                     .set(p)
                     .get();
-            
             return p;
         } catch (InterruptedException | ExecutionException e) {
             e.printStackTrace();
@@ -36,28 +94,25 @@ public class PokeService {
         }
     }
 
-    // Battle calculations with level update
     public Long calculateBattle(PokeEntity attacker, PokeEntity defender) {
         int attackScore = attacker.getLevel();
         int defendScore = defender.getLevel();
-        
         Long winnerId = attackScore >= defendScore ? attacker.getId() : defender.getId();
-        
-        // Winner gains one level after battle.
         try {
             PokeEntity winner = winnerId.equals(attacker.getId()) ? attacker : defender;
             winner.setLevel(winner.getLevel() + 1);
-            
-            // Update in Firestore
-            Firestore db = FirestoreClient.getFirestore();
+            Firestore db = FirestoreClient.getFirestore(firebaseApp);
             db.collection(COLLECTION_NAME)
                     .document(String.valueOf(winnerId))
                     .set(winner)
                     .get();
+            db.collection("pokebattles")
+                .document("battle1")
+                .set(winner)
+                .get();
         } catch (InterruptedException | ExecutionException e) {
             e.printStackTrace();
         }
-        
         return winnerId;
     }
 
@@ -71,7 +126,6 @@ public class PokeService {
         try {
             Firestore db = FirestoreClient.getFirestore();
             List<PokeEntity> pokemonList = new ArrayList<>();
-            
             db.collection(COLLECTION_NAME)
                     .get()
                     .get()
@@ -80,7 +134,6 @@ public class PokeService {
                         PokeEntity p = doc.toObject(PokeEntity.class);
                         pokemonList.add(p);
                     });
-            
             return pokemonList;
         } catch (InterruptedException | ExecutionException e) {
             e.printStackTrace();
@@ -95,7 +148,6 @@ public class PokeService {
                     .document(String.valueOf(id))
                     .get()
                     .get();
-            
             return doc.exists() ? doc.toObject(PokeEntity.class) : null;
         } catch (InterruptedException | ExecutionException e) {
             e.printStackTrace();
